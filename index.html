@@ -3,18 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>منصة عقولٌ تصنع - إدارة البيانات المشفرة</title>
+    <title>منصة عقولٌ تصنع - النسخة السحابية</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, query, signInAnonymously, getAuth, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth as getFirebaseAuth } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getFirebaseAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Global State
+        window.db = db;
+        window.appId = appId;
+        window.currentUser = null;
+
+        // Authentication Protocol (Rule 3)
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth failed", error);
+            }
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            window.currentUser = user;
+            if (user) {
+                listenToLabs();
+            }
+        });
+
+        initAuth();
+
+        // Real-time synchronization
+        function listenToLabs() {
+            for (let i = 1; i <= 15; i++) {
+                const labRef = doc(db, 'artifacts', appId, 'public', 'data', `lab_${i}`);
+                onSnapshot(labRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        localStorage.setItem(`LOCKED_V21_${i}`, data.isLocked ? 'true' : 'false');
+                        localStorage.setItem(`V21_DATA_${i}`, JSON.stringify(data));
+                        if (window.currentLab == i) updateTeacherDashboard();
+                    }
+                    refreshLabIcons();
+                }, (error) => console.error("Sync error", error));
+            }
+        }
+    </script>
+
     <style>
         body { font-family: 'Tajawal', sans-serif; background: #f4f7fb; color: #2d3748; }
         .glass-card { background: white; border-radius: 2.5rem; border: 1px solid #edf2f7; box-shadow: 0 15px 35px rgba(0,0,0,0.05); }
         .nav-btn { transition: all 0.3s ease; }
         .nav-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
-        .secure-input { letter-spacing: 0.5em; text-align: center; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -23,7 +79,7 @@
     <div id="selectionScreen" class="max-w-2xl mx-auto py-16 text-center space-y-10">
         <div class="space-y-2">
             <h1 class="text-6xl font-black text-indigo-900 italic">عقولٌ تصنع 🚀</h1>
-            <p class="text-slate-500 font-bold">بوابتكِ للتحليل الذكي والإبداع</p>
+            <p class="text-slate-500 font-bold">بوابتكِ للتحليل الذكي والإبداع (النسخة السحابية)</p>
         </div>
         
         <div class="glass-card p-10 space-y-8 border-b-8 border-indigo-200">
@@ -33,8 +89,7 @@
                     <option value="">-- اختاري المختبر --</option>
                     <script>
                         for(let i=1; i<=15; i++) {
-                            let lock = localStorage.getItem(`LOCKED_V21_${i}`) === 'true';
-                            document.write(`<option value="${i}">${lock ? '🔒' : '🔓'} مختبر رقم ${i} ${lock ? '(محجوز)' : '(متاح)'}</option>`);
+                            document.write(`<option value="${i}" id="opt_${i}">مختبر رقم ${i}</option>`);
                         }
                     </script>
                 </select>
@@ -76,13 +131,12 @@
                     </select>
                     <textarea id="tQ" class="w-full p-4 border rounded-2xl h-24 focus:ring-2 ring-indigo-500 outline-none" placeholder="اكتبي التحدي الفكري هنا..."></textarea>
                     
-                    <!-- إضافة نظام الكلمات المفتاحية -->
                     <div class="space-y-2">
-                        <label class="text-xs font-bold text-slate-500">الكلمات المفتاحية (للتصحيح التلقائي - افصلي بفاصلة):</label>
+                        <label class="text-xs font-bold text-slate-500">الكلمات المفتاحية (افصلي بفاصلة):</label>
                         <input id="tKeywords" type="text" class="w-full p-3 border rounded-xl text-sm outline-none focus:ring-2 ring-indigo-300" placeholder="مثال: تحليل، منطق، استنتاج">
                     </div>
 
-                    <button onclick="publishMission()" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg hover:bg-indigo-700 transition-colors">نشر المهمة للطالبات 📡</button>
+                    <button onclick="publishMission()" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg hover:bg-indigo-700 transition-colors">نشر المهمة سحابياً 📡</button>
                 </div>
                 <div class="glass-card p-8 h-80">
                     <canvas id="gradeChart"></canvas>
@@ -112,7 +166,7 @@
         <div class="glass-card p-12 space-y-8 border-t-[20px] border-indigo-600 shadow-2xl">
             <div class="text-center space-y-4">
                 <span id="sCategory" class="px-4 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-bold uppercase tracking-widest"></span>
-                <h2 id="sQ" class="text-3xl font-black text-slate-800 leading-tight">...</h2>
+                <h2 id="sQ" class="text-3xl font-black text-slate-800 leading-tight">بانتظار المعلمة لنشر المهمة...</h2>
             </div>
             
             <div id="sInputArea" class="space-y-6">
@@ -131,51 +185,33 @@
     </div>
 
 <script>
-let currentLab = 0;
+window.currentLab = 0;
 let isReadOnly = false;
 let startTime = 0;
 let gradeChart = null;
 const MASTER_KEY = "9999"; 
 
-function secureMasterReset() {
-    const pass = prompt("أدخلي كلمة مرور التصفير الشامل (المديرة):");
-    if(pass === MASTER_KEY) {
-        if(confirm("⚠️ سيتم مسح المنصة بالكامل. هل أنتِ متأكدة؟")) {
-            localStorage.clear();
-            alert("تم التصفير بنجاح.");
-            location.reload();
-        }
-    } else {
-        alert("كلمة المرور خاطئة!");
-    }
+async function syncLabToCloud(labNum, data) {
+    if (!window.currentUser) return;
+    const labRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', `lab_${labNum}`);
+    await window.setDoc(labRef, data);
 }
 
-function secureSpecificReset() {
-    const pin = prompt(`لتصفير مختبر ${currentLab}، أدخلي الكود الخاص به:`);
-    if(pin == (parseInt(currentLab) + 100)) {
-        localStorage.removeItem(`V21_DATA_${currentLab}`);
-        localStorage.setItem(`LOCKED_V21_${currentLab}`, 'false');
-        alert("تم تصفير المختبر وفك الحجز.");
-        location.reload();
-    } else {
-        alert("كود خاطئ! لا يمكن التصفير.");
+function refreshLabIcons() {
+    for(let i=1; i<=15; i++) {
+        const isLocked = localStorage.getItem(`LOCKED_V21_${i}`) === 'true';
+        const opt = document.getElementById(`opt_${i}`);
+        if(opt) opt.innerText = `${isLocked ? '🔒' : '🔓'} مختبر رقم ${i} ${isLocked ? '(محجوز)' : '(متاح)'}`;
     }
-}
-
-function autoClearStudentSession() {
-    document.getElementById('sName').value = "";
-    document.getElementById('sAns').value = "";
-    document.getElementById('sFinalEdit').value = "";
-    startTime = 0;
 }
 
 function refreshSelectionUI() {
-    currentLab = document.getElementById('labSelect').value;
+    window.currentLab = document.getElementById('labSelect').value;
     const area = document.getElementById('actionArea');
-    if(!currentLab) return area.classList.add('hidden');
+    if(!window.currentLab) return area.classList.add('hidden');
     
     area.classList.remove('hidden');
-    const isLocked = localStorage.getItem(`LOCKED_V21_${currentLab}`) === 'true';
+    const isLocked = localStorage.getItem(`LOCKED_V21_${window.currentLab}`) === 'true';
     
     area.innerHTML = isLocked ? `
         <button onclick="startStudentMode()" class="nav-btn w-full py-6 bg-emerald-500 text-white rounded-3xl font-black text-xl shadow-xl">دخول الطالبة 🎓</button>
@@ -185,19 +221,18 @@ function refreshSelectionUI() {
     `;
 }
 
-function startTeacherMode(readOnly) {
+async function startTeacherMode(readOnly) {
     if(!readOnly) {
-        const pin = prompt(`أدخلي كود تفعيل مختبر ${currentLab}:`);
-        if(pin != (parseInt(currentLab) + 100)) return alert("الكود غير صحيح!");
-        localStorage.setItem(`LOCKED_V21_${currentLab}`, 'true');
+        const pin = prompt(`أدخلي كود تفعيل مختبر ${window.currentLab}:`);
+        if(pin != (parseInt(window.currentLab) + 100)) return alert("الكود غير صحيح!");
+        await syncLabToCloud(window.currentLab, { isLocked: true, s: [], q: "", type: "", keywords: "" });
     }
     isReadOnly = readOnly;
     document.getElementById('selectionScreen').classList.add('hidden');
     document.getElementById('teacherPanel').classList.remove('hidden');
-    document.getElementById('tLabNum').innerText = currentLab;
+    document.getElementById('tLabNum').innerText = window.currentLab;
     
-    // استعادة الكلمات المفتاحية والسؤال عند الدخول
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`) || '{"q":"","keywords":""}');
+    const data = JSON.parse(localStorage.getItem(`V21_DATA_${window.currentLab}`) || '{"q":"","keywords":""}');
     document.getElementById('tQ').value = data.q || "";
     document.getElementById('tKeywords').value = data.keywords || "";
 
@@ -205,127 +240,54 @@ function startTeacherMode(readOnly) {
         document.getElementById('tSide').classList.add('opacity-50', 'pointer-events-none');
         document.getElementById('resetCurrentLab').classList.add('hidden');
     }
-    
-    setInterval(updateTeacherDashboard, 1000);
+    updateTeacherDashboard();
 }
 
 function startStudentMode() {
     document.getElementById('selectionScreen').classList.add('hidden');
     document.getElementById('studentPanel').classList.remove('hidden');
-    setInterval(() => {
-        const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`) || '{"q":"لا يوجد سؤال حالياً"}');
-        document.getElementById('sQ').innerText = data.q;
-        document.getElementById('sCategory').innerText = data.type || "عام";
-    }, 1000);
+    updateStudentView();
 }
 
-function interceptPaste(e) {
-    e.preventDefault();
-    const pastedText = (e.clipboardData || window.clipboardData).getData('text');
-    const name = document.getElementById('sName').value || "طالبة غير معروفة";
-    saveToStorage(name, `🚨 [محاولة لصق]: ${pastedText}`, 'snitched', 0);
-    document.getElementById('sInputArea').classList.add('hidden');
-    document.getElementById('sCoachArea').classList.remove('hidden');
-    generateCoachSteps();
+function updateStudentView() {
+    const data = JSON.parse(localStorage.getItem(`V21_DATA_${window.currentLab}`) || '{"q":"..."}');
+    document.getElementById('sQ').innerText = data.q || "بانتظار المعلمة...";
+    document.getElementById('sCategory').innerText = data.type || "عام";
 }
 
-function startCounter() { if(startTime === 0) startTime = Date.now(); }
-
-// نظام التصحيح التلقائي الذكي
-function calculateAutomaticGrade(answer, keywordsStr) {
-    if (!keywordsStr) return 10; // إذا لم توجد كلمات مفتاحية، تعطى الدرجة بناء على المعايير السابقة
+async function publishMission() {
+    const q = document.getElementById('tQ').value;
+    const type = document.getElementById('tType').value;
+    const keywords = document.getElementById('tKeywords').value;
+    if(!q) return alert("اكتبي السؤال أولاً!");
     
-    const keywords = keywordsStr.split(',').map(k => k.trim().toLowerCase()).filter(k => k !== "");
-    if (keywords.length === 0) return 10;
-
-    const lowerAns = answer.toLowerCase();
-    let matchCount = 0;
-    
-    keywords.forEach(word => {
-        if (lowerAns.includes(word)) matchCount++;
+    const existingData = JSON.parse(localStorage.getItem(`V21_DATA_${window.currentLab}`) || '{"s":[]}');
+    await syncLabToCloud(window.currentLab, {
+        isLocked: true,
+        q, 
+        type, 
+        keywords, 
+        s: existingData.s || []
     });
-
-    const matchRatio = matchCount / keywords.length;
-    // الدرجة من 10 (الحد الأدنى 4 إذا كانت الإجابة طويلة والحد الأقصى 10)
-    let finalGrade = Math.round(matchRatio * 10);
-    return Math.max(finalGrade, 2); // ضمان عدم نزول الدرجة عن 2 إذا كتبت شيئاً
+    alert("تم نشر المهمة سحابياً لجميع الأجهزة! 📡");
 }
 
-function processSubmission() {
-    const ans = document.getElementById('sAns').value;
-    const name = document.getElementById('sName').value;
-    if(!name || !ans) return alert("يرجى إكمال البيانات!");
-    
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`));
-    const words = ans.trim().split(/\s+/).length;
-    const timeTaken = (Date.now() - startTime) / 1000;
-
-    // كشف الذكاء الاصطناعي أو السرعة المفرطة
-    if(timeTaken < (words * 0.7) && words > 5) {
-        document.getElementById('sInputArea').classList.add('hidden');
-        document.getElementById('sCoachArea').classList.remove('hidden');
-        generateCoachSteps();
-        saveToStorage(name, ans, 'ai', 2);
-    } else {
-        const autoGrade = calculateAutomaticGrade(ans, data.keywords);
-        saveToStorage(name, ans, 'human', autoGrade);
-        autoClearStudentSession();
-        alert(`تم استلام تحليلكِ بنجاح! درجتكِ التلقائية: ${autoGrade}/10`); 
+async function secureSpecificReset() {
+    const pin = prompt(`لتصفير مختبر ${window.currentLab}، أدخلي الكود الخاص به:`);
+    if(pin == (parseInt(window.currentLab) + 100)) {
+        await syncLabToCloud(window.currentLab, { isLocked: false, s: [], q: "", type: "", keywords: "" });
+        alert("تم التصفير وفك الحجز سحابياً.");
         location.reload();
+    } else {
+        alert("كود خاطئ!");
     }
-}
-
-function generateCoachSteps() {
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`));
-    const type = data.type;
-    const library = {
-        grammar: ["ما هي الوظيفة النحوية للكلمة؟", "ما الحركة الإعرابية المناسبة؟"],
-        logic: ["رتبي المعطيات أولاً.", "ما هي القاعدة المنطقية التي استخدمتها؟"],
-        creative: ["ماذا لو تغيرت الظروف؟", "ابتكري نهاية بديلة للقصة."],
-        analyze: ["ما هي الفكرة الأساسية؟", "اربطي بين الأدلة والنتائج."]
-    };
-    const steps = library[type] || ["فكري في السؤال بطريقة نقدية.", "صغي إجابتكِ بأسلوبكِ الخاص."];
-    document.getElementById('coachSteps').innerHTML = steps.map(s => `<div class='bg-white p-4 border-r-4 border-indigo-600 rounded-xl shadow-sm font-bold'>${s}</div>`).join('');
-}
-
-function finalSubmit() {
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`));
-    const finalAns = document.getElementById('sFinalEdit').value;
-    const studentName = document.getElementById('sName').value; // يحتاج للتحسين لجلب الاسم الصحيح
-    
-    // البحث عن الطالبة في القائمة
-    const studentIdx = data.s.findIndex(s => s.status === 'ai' || s.status === 'snitched');
-    const autoGrade = calculateAutomaticGrade(finalAns, data.keywords);
-    
-    if (studentIdx > -1) {
-        data.s[studentIdx].status = 'coached';
-        data.s[studentIdx].final = finalAns;
-        data.s[studentIdx].grade = autoGrade;
-    }
-    
-    localStorage.setItem(`V21_DATA_${currentLab}`, JSON.stringify(data));
-    autoClearStudentSession();
-    alert("رائع! تم إرسال النسخة المطورة.");
-    location.reload();
-}
-
-function saveToStorage(n, a, st, g) {
-    const key = `V21_DATA_${currentLab}`;
-    const data = JSON.parse(localStorage.getItem(key)) || {s: []};
-    const idx = data.s.findIndex(x => x.name === n);
-    if(idx > -1) { 
-        data.s[idx].status = st; 
-        data.s[idx].ans = a; 
-        data.s[idx].grade = g;
-    }
-    else { data.s.push({ name: n, ans: a, status: st, grade: g }); }
-    localStorage.setItem(key, JSON.stringify(data));
 }
 
 function updateTeacherDashboard() {
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`) || '{"s":[]}');
+    const data = JSON.parse(localStorage.getItem(`V21_DATA_${window.currentLab}`) || '{"s":[]}');
     const tbody = document.getElementById('tTable');
-    tbody.innerHTML = data.s.map((s, i) => `
+    if(!tbody) return;
+    tbody.innerHTML = (data.s || []).map((s, i) => `
         <tr class="border-b transition-colors ${s.status == 'snitched' ? 'bg-red-50' : 'hover:bg-slate-50'}">
             <td class="p-4 font-bold text-slate-700">${s.name}</td>
             <td class="p-4">
@@ -337,17 +299,69 @@ function updateTeacherDashboard() {
             <td class="p-4"><button onclick="viewLog(${i})" class="text-indigo-500 underline text-xs font-bold">فتح السجل</button></td>
         </tr>
     `).join('');
-    drawChart(data.s);
+    drawChart(data.s || []);
 }
 
-function viewLog(i) {
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`));
-    const s = data.s[i];
-    alert(`سجل الطالبة: ${s.name}\n\nالإجابة الأصلية/الدليل:\n${s.ans}\n\nالإجابة النهائية المطورة:\n${s.final || 'لم تكتمل'}`);
+async function saveToCloud(labNum, name, ans, status, grade) {
+    const data = JSON.parse(localStorage.getItem(`V21_DATA_${labNum}`)) || {s: []};
+    const idx = data.s.findIndex(x => x.name === name);
+    if(idx > -1) { 
+        data.s[idx].status = status; 
+        data.s[idx].ans = ans; 
+        data.s[idx].grade = grade;
+    } else { 
+        data.s.push({ name, ans, status, grade }); 
+    }
+    await syncLabToCloud(labNum, data);
+}
+
+function processSubmission() {
+    const ans = document.getElementById('sAns').value;
+    const name = document.getElementById('sName').value;
+    if(!name || !ans) return alert("يرجى إكمال البيانات!");
+    
+    const data = JSON.parse(localStorage.getItem(`V21_DATA_${window.currentLab}`));
+    const words = ans.trim().split(/\s+/).length;
+    const timeTaken = (Date.now() - startTime) / 1000;
+
+    if(timeTaken < (words * 0.7) && words > 5) {
+        document.getElementById('sInputArea').classList.add('hidden');
+        document.getElementById('sCoachArea').classList.remove('hidden');
+        generateCoachSteps();
+        saveToCloud(window.currentLab, name, ans, 'ai', 2);
+    } else {
+        const autoGrade = calculateAutomaticGrade(ans, data.keywords);
+        saveToCloud(window.currentLab, name, ans, 'human', autoGrade);
+        alert(`تم استلام تحليلكِ بنجاح!`); 
+        location.reload();
+    }
+}
+
+function calculateAutomaticGrade(answer, keywordsStr) {
+    if (!keywordsStr) return 10;
+    const keywords = keywordsStr.split(',').map(k => k.trim().toLowerCase()).filter(k => k !== "");
+    if (keywords.length === 0) return 10;
+    const lowerAns = answer.toLowerCase();
+    let matchCount = 0;
+    keywords.forEach(word => { if (lowerAns.includes(word)) matchCount++; });
+    return Math.max(Math.round((matchCount / keywords.length) * 10), 2);
+}
+
+function startCounter() { if(startTime === 0) startTime = Date.now(); }
+
+function interceptPaste(e) {
+    e.preventDefault();
+    const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+    const name = document.getElementById('sName').value || "طالبة مجهولة";
+    saveToCloud(window.currentLab, name, `🚨 محاولة لصق: ${pastedText}`, 'snitched', 0);
+    document.getElementById('sInputArea').classList.add('hidden');
+    document.getElementById('sCoachArea').classList.remove('hidden');
 }
 
 function drawChart(students) {
-    const ctx = document.getElementById('gradeChart').getContext('2d');
+    const canvas = document.getElementById('gradeChart');
+    if(!canvas) return;
+    const ctx = canvas.getContext('2d');
     const stats = [0, 0, 0, 0];
     students.forEach(s => {
         if(s.grade >= 9) stats[0]++;
@@ -360,40 +374,6 @@ function drawChart(students) {
         type: 'bar',
         data: { labels: ['9-10', '7-8', '5-6', '<5'], datasets: [{ label: 'توزيع الدرجات', data: stats, backgroundColor: '#4f46e5', borderRadius: 8 }] },
         options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-    });
-}
-
-function publishMission() {
-    const q = document.getElementById('tQ').value;
-    const type = document.getElementById('tType').value;
-    const keywords = document.getElementById('tKeywords').value;
-    if(!q) return alert("اكتبي السؤال أولاً!");
-    
-    // الاحتفاظ بالبيانات السابقة للطالبات عند تحديث السؤال
-    const existingData = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`) || '{"s":[]}');
-    localStorage.setItem(`V21_DATA_${currentLab}`, JSON.stringify({
-        q, 
-        type, 
-        keywords, 
-        s: existingData.s 
-    }));
-    alert("تم نشر المهمة وتحديث معايير التصحيح! 📡");
-}
-
-function updateGrade(i, v) {
-    const data = JSON.parse(localStorage.getItem(`V21_DATA_${currentLab}`));
-    data.s[i].grade = v;
-    localStorage.setItem(`V21_DATA_${currentLab}`, JSON.stringify(data));
-}
-
-function exportPDF() {
-    const { jsPDF } = window.jspdf;
-    html2canvas(document.getElementById('reportArea')).then(canvas => {
-        const doc = new jsPDF();
-        doc.setFontSize(18);
-        doc.text(`تقرير مختبر عقول تصنع - رقم ${currentLab}`, 10, 20);
-        doc.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 30, 190, 0);
-        doc.save(`Results_Lab_${currentLab}.pdf`);
     });
 }
 </script>
